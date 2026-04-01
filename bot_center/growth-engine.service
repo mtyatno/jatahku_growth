@@ -1,5 +1,5 @@
 [Unit]
-Description=Jatahku Callback Bot — listener inline button Telegram
+Description=Growth Engine — listener inline button Telegram
 After=network.target
 
 [Service]

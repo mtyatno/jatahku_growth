@@ -29,8 +29,8 @@ jobs:
             /home/yatno/jatahku_growth/venv/bin/pip install -r requirements.txt -q
 
             # Restart callback bot service supaya pakai kode terbaru
-            sudo systemctl restart jatahku-bot
-            sudo systemctl status jatahku-bot --no-pager
+            sudo systemctl restart growth-engine
+            sudo systemctl status growth-engine --no-pager
 
             echo "=== DEPLOY SELESAI ==="
             echo "Versi terbaru sudah aktif di VPS."
