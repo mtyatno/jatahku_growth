@@ -28,9 +28,5 @@ jobs:
             # Install/update dependencies ke venv yang sama dengan cron
             /home/yatno/jatahku_growth/venv/bin/pip install -r requirements.txt -q
 
-            # Restart callback bot service supaya pakai kode terbaru
-            sudo systemctl restart growth-engine
-            sudo systemctl status growth-engine --no-pager
-
             echo "=== DEPLOY SELESAI ==="
             echo "Versi terbaru sudah aktif di VPS."
