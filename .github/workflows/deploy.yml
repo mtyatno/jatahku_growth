@@ -25,8 +25,8 @@ jobs:
             # Pull kode terbaru
             git pull origin main
 
-            # Install/update dependencies jika ada yang baru
-            pip install -r requirements.txt -q
+            # Install/update dependencies ke venv yang sama dengan cron
+            /home/yatno/jatahku_growth/venv/bin/pip install -r requirements.txt -q
 
             echo "=== DEPLOY SELESAI ==="
             echo "Versi terbaru sudah aktif di VPS."
