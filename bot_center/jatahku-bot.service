@@ -1,0 +1,16 @@
+[Unit]
+Description=Jatahku Callback Bot — listener inline button Telegram
+After=network.target
+
+[Service]
+Type=simple
+User=yatno
+WorkingDirectory=/home/yatno/jatahku_growth
+ExecStart=/home/yatno/jatahku_growth/venv/bin/python bot_center/callback_bot.py
+Restart=always
+RestartSec=5
+StandardOutput=append:/home/yatno/jatahku_growth/callback_bot.log
+StandardError=append:/home/yatno/jatahku_growth/callback_bot.log
+
+[Install]
+WantedBy=multi-user.target

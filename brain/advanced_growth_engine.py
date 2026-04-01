@@ -1,5 +1,6 @@
 import sys
 import os
+import json
 import requests
 import feedparser
 from datetime import datetime, timedelta, timezone
@@ -15,6 +16,11 @@ from memory import topic_history
 client = genai.Client(api_key=config.GEMINI_API_KEY)
 
 FRESHNESS_HOURS = 72  # Abaikan sinyal lebih lama dari 72 jam
+
+PENDING_DRAFT_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    'memory', 'pending_draft.json'
+)
 
 # Rotasi cluster harian — berputar setiap 4 hari
 # Senin=0, Selasa=1, Rabu=2, Kamis=3, Jumat=4, dst.
@@ -235,7 +241,76 @@ def generate_content(title):
 
 
 # ==========================================
-# 6. TELEGRAM SENDER
+# 6. SOCIAL DRAFT GENERATOR (X & Threads)
+# ==========================================
+def generate_social_draft(title):
+    prompt = f"""
+    Pain point: "{title}"
+
+    Buat 1 post untuk X (Twitter) dan Meta Threads.
+
+    Aturan WAJIB:
+    - Mulai dengan hook menohok yang nyelekit (pain attack)
+    - Sebut jatahku.com sebagai solusi sistem uang harian
+    - Akhiri dengan CTA singkat (misal: Coba gratis → jatahku.com)
+    - TOTAL MAKSIMAL 270 karakter (termasuk spasi dan emoji)
+    - Bahasa Indonesia gaul, no basa-basi
+    - Maksimal 2 emoji yang relevan
+
+    Output: hanya teks post-nya saja, tanpa tanda kutip, tanpa penjelasan.
+    """
+    try:
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+        )
+        draft = response.text.strip()
+        if len(draft) > 280:
+            draft = draft[:277] + "..."
+        return draft
+    except Exception as e:
+        return f"❌ Error draft: {e}"
+
+
+def save_pending_draft(draft_text, signal_title):
+    data = {
+        "draft": draft_text,
+        "signal": signal_title,
+        "timestamp": datetime.now().isoformat()
+    }
+    with open(PENDING_DRAFT_PATH, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def send_draft_with_buttons(draft_text):
+    char_count = len(draft_text)
+    url = f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage"
+    message = (
+        f"📝 <b>DRAFT X &amp; THREADS:</b>\n\n"
+        f"<code>{draft_text}</code>\n\n"
+        f"<i>({char_count}/280 karakter)</i>\n\n"
+        f"Pilih aksi:"
+    )
+    payload = {
+        "chat_id": config.TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "HTML",
+        "reply_markup": {
+            "inline_keyboard": [[
+                {"text": "✅ Post ke X & Threads", "callback_data": "post_draft"},
+                {"text": "❌ Jangan Post", "callback_data": "skip_draft"}
+            ]]
+        }
+    }
+    try:
+        requests.post(url, json=payload)
+        print("✅ Draft + inline button terkirim ke Telegram!")
+    except Exception as e:
+        print(f"❌ Gagal kirim draft: {e}")
+
+
+# ==========================================
+# 7. TELEGRAM SENDER
 # ==========================================
 def send_to_telegram(message):
     url = f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -281,6 +356,12 @@ def main():
     print(f"Mengolah AI untuk Top Signal: {best_signal['title']}...")
     ai_script = generate_content(best_signal['title'])
 
+    # Generate Draft 280 char untuk X & Threads
+    print("Membuat draft X & Threads...")
+    social_draft = generate_social_draft(best_signal['title'])
+    save_pending_draft(social_draft, best_signal['title'])
+    print(f"💾 Draft tersimpan ({len(social_draft)} karakter).")
+
     # Simpan ke riwayat agar tidak muncul lagi minggu ini
     topic_history.save(best_signal['title'], todays_cluster)
     print(f"💾 Topik tersimpan ke riwayat: {best_signal['title'][:60]}")
@@ -312,6 +393,7 @@ def main():
 
     print("\n" + report)
     send_to_telegram(report)
+    send_draft_with_buttons(social_draft)
 
 
 if __name__ == "__main__":
