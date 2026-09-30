@@ -2,5 +2,4 @@ feedparser
 requests
 google-genai
 google-api-python-client
-apify-client
 tweepy
