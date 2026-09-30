@@ -2,18 +2,14 @@
 # Jalankan terus-menerus (python callback_bot.py) untuk menangani tombol inline Telegram.
 import sys
 import os
-import json
 import time
+import html
 import requests
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
-from bot_center.poster import post_all
-
-PENDING_DRAFT_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    'memory', 'pending_draft.json'
-)
+from bot_center.poster import post_all, PLATFORMS
+from memory import draft_store
 
 API = f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}"
 
@@ -30,68 +26,90 @@ def get_updates(offset=None):
         return {"result": []}
 
 
+def _call(method, payload):
+    """Panggil Telegram API dan log kalau Telegram menolak (ok=false)."""
+    try:
+        r = requests.post(f"{API}/{method}", json=payload, timeout=10)
+        data = r.json()
+        if not data.get("ok"):
+            print(f"❌ Telegram {method} ditolak: {data.get('description')}")
+        return data
+    except Exception as e:
+        print(f"❌ Telegram {method} error: {e}")
+        return {}
+
+
 def answer_callback(callback_id, text="✅"):
-    requests.post(f"{API}/answerCallbackQuery", json={
-        "callback_query_id": callback_id,
-        "text": text
-    }, timeout=10)
+    _call("answerCallbackQuery", {"callback_query_id": callback_id, "text": text})
 
 
-def edit_message(chat_id, message_id, new_text):
-    requests.post(f"{API}/editMessageText", json={
+def edit_message(chat_id, message_id, new_text, reply_markup=None):
+    payload = {
         "chat_id": chat_id,
         "message_id": message_id,
         "text": new_text,
         "parse_mode": "HTML"
-    }, timeout=10)
+    }
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+    _call("editMessageText", payload)
 
 
 def send_message(text):
-    requests.post(f"{API}/sendMessage", json={
+    _call("sendMessage", {
         "chat_id": config.TELEGRAM_CHAT_ID,
         "text": text,
         "parse_mode": "HTML"
-    }, timeout=10)
+    })
 
 
-def load_pending_draft():
-    if not os.path.exists(PENDING_DRAFT_PATH):
-        return None
-    try:
-        with open(PENDING_DRAFT_PATH, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except Exception:
-        return None
+def retry_buttons(draft_id):
+    return {"inline_keyboard": [[
+        {"text": "🔁 Coba Lagi", "callback_data": f"post_draft:{draft_id}"},
+        {"text": "❌ Batalkan", "callback_data": f"skip_draft:{draft_id}"}
+    ]]}
 
 
-def handle_post(cb_id, chat_id, message_id):
-    pending = load_pending_draft()
+def handle_post(cb_id, chat_id, message_id, draft_id):
+    pending = draft_store.get(draft_id)
     if not pending:
-        answer_callback(cb_id, "⚠️ Tidak ada draft tersimpan.")
+        answer_callback(cb_id, "⚠️ Draft sudah diproses atau kadaluarsa.")
         return
 
     answer_callback(cb_id, "⏳ Sedang posting...")
     edit_message(chat_id, message_id, "⏳ <b>Posting ke X &amp; Threads...</b>")
 
-    results = post_all(pending["draft"])
-    result_lines = "\n".join(results.values())
+    already_posted = pending.get("posted", {})
+    results = post_all(pending["draft"], skip=already_posted.keys())
 
-    send_message(
-        f"📬 <b>Hasil Posting:</b>\n{result_lines}"
-    )
-    edit_message(
-        chat_id, message_id,
-        f"📝 <b>DRAFT (sudah diposting):</b>\n<code>{pending['draft']}</code>"
-    )
+    for platform, (ok, msg) in results.items():
+        if ok:
+            draft_store.mark_posted(draft_id, platform, msg)
+            already_posted[platform] = msg
 
-    # Hapus pending draft setelah berhasil diposting
-    try:
-        os.remove(PENDING_DRAFT_PATH)
-    except Exception:
-        pass
+    result_lines = "\n".join(html.escape(msg) for _, msg in results.values())
+    send_message(f"📬 <b>Hasil Posting:</b>\n{result_lines}")
+
+    draft_html = html.escape(pending["draft"])
+    failed = [p for p in PLATFORMS if p not in already_posted]
+
+    if not failed:
+        edit_message(
+            chat_id, message_id,
+            f"📝 <b>DRAFT (sudah diposting):</b>\n<code>{draft_html}</code>"
+        )
+        draft_store.remove(draft_id)
+    else:
+        # Draft tetap disimpan; tombol retry hanya memposting ulang platform yang gagal
+        edit_message(
+            chat_id, message_id,
+            f"📝 <b>DRAFT (gagal di: {', '.join(failed)}):</b>\n<code>{draft_html}</code>",
+            reply_markup=retry_buttons(draft_id)
+        )
 
 
-def handle_skip(cb_id, chat_id, message_id):
+def handle_skip(cb_id, chat_id, message_id, draft_id):
+    draft_store.remove(draft_id)
     answer_callback(cb_id, "⏭️ Draft dilewati.")
     edit_message(
         chat_id, message_id,
@@ -120,10 +138,16 @@ def main():
 
             print(f"📥 Callback diterima: {data}")
 
-            if data == "post_draft":
-                handle_post(cb_id, chat_id, message_id)
-            elif data == "skip_draft":
-                handle_skip(cb_id, chat_id, message_id)
+            action, _, draft_id = data.partition(":")
+            if not draft_id:
+                # Tombol format lama (tanpa ID draft) — tidak bisa dipastikan draft mana
+                answer_callback(cb_id, "⚠️ Tombol versi lama, draft tidak bisa diproses.")
+                continue
+
+            if action == "post_draft":
+                handle_post(cb_id, chat_id, message_id, draft_id)
+            elif action == "skip_draft":
+                handle_skip(cb_id, chat_id, message_id, draft_id)
 
         time.sleep(1)
 

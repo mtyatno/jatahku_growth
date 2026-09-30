@@ -56,20 +56,28 @@ def post_to_threads(text):
     return thread_id
 
 
-def post_all(text):
-    """Post ke X dan Threads, return dict hasil."""
+PLATFORMS = ("x", "threads")
+
+
+def post_all(text, skip=()):
+    """
+    Post ke X dan Threads, return dict platform -> (sukses: bool, pesan: str).
+    Platform di `skip` (sudah sukses sebelumnya) tidak diposting ulang.
+    """
     results = {}
 
-    try:
-        url = post_to_x(text)
-        results["x"] = f"✅ X posted: {url}"
-    except Exception as e:
-        results["x"] = f"❌ X gagal: {e}"
+    if "x" not in skip:
+        try:
+            url = post_to_x(text)
+            results["x"] = (True, f"✅ X posted: {url}")
+        except Exception as e:
+            results["x"] = (False, f"❌ X gagal: {e}")
 
-    try:
-        thread_id = post_to_threads(text)
-        results["threads"] = f"✅ Threads posted (id: {thread_id})"
-    except Exception as e:
-        results["threads"] = f"❌ Threads gagal: {e}"
+    if "threads" not in skip:
+        try:
+            thread_id = post_to_threads(text)
+            results["threads"] = (True, f"✅ Threads posted (id: {thread_id})")
+        except Exception as e:
+            results["threads"] = (False, f"❌ Threads gagal: {e}")
 
     return results
