@@ -1,4 +1,5 @@
 # bot_center/daily_command.py
+import html
 import requests
 import sys
 import os
@@ -19,11 +20,14 @@ def send_telegram_message(text):
         "parse_mode": "HTML"
     }
     try:
-        response = requests.post(url, json=payload)
-        response.raise_for_status()
-        print("✅ Pesan beserta AI Script berhasil dikirim ke Telegram!")
+        data = requests.post(url, json=payload, timeout=15).json()
     except Exception as e:
         print(f"❌ Gagal mengirim pesan: {e}")
+        return
+    if data.get("ok"):
+        print("✅ Pesan beserta AI Script berhasil dikirim ke Telegram!")
+    else:
+        print(f"❌ Telegram menolak pesan: {data.get('description')}")
 
 
 def pick_fresh_idea(ideas):
@@ -43,7 +47,7 @@ def main():
 
     # 1. Ambil data mentah dari scraper (sudah difilter duplikat di dalamnya)
     ideas = get_daily_ideas()
-    ideas_text = "\n".join(ideas)
+    ideas_text = html.escape("\n".join(ideas))
 
     # 2. Pilih ide segar (skip yang sudah dipakai minggu ini)
     top_idea = pick_fresh_idea(ideas)
@@ -64,9 +68,9 @@ def main():
 {ideas_text}
 
 🎬 <b>SCRIPT OF THE DAY (Siap Rekam):</b>
-<i>Angle: {top_idea}</i>
+<i>Angle: {html.escape(top_idea)}</i>
 
-{ai_script}
+{html.escape(ai_script)}
 
 <i>~ Mesin Growth V3.0 | Jatahku.com</i>
 """

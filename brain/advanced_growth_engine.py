@@ -1,6 +1,6 @@
 import sys
 import os
-import json
+import html
 import requests
 import feedparser
 from datetime import datetime, timedelta, timezone
@@ -10,17 +10,12 @@ from google import genai
 # Panggil config.py
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
-from memory import topic_history
+from memory import topic_history, draft_store
 
 # Inisialisasi AI
 client = genai.Client(api_key=config.GEMINI_API_KEY)
 
 FRESHNESS_HOURS = 72  # Abaikan sinyal lebih lama dari 72 jam
-
-PENDING_DRAFT_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    'memory', 'pending_draft.json'
-)
 
 # Rotasi cluster harian — berputar setiap 4 hari
 # Senin=0, Selasa=1, Rabu=2, Kamis=3, Jumat=4, dst.
@@ -272,54 +267,42 @@ def generate_social_draft(title):
         return f"❌ Error draft: {e}"
 
 
-def save_pending_draft(draft_text, signal_title):
-    data = {
-        "draft": draft_text,
-        "signal": signal_title,
-        "timestamp": datetime.now().isoformat()
-    }
-    with open(PENDING_DRAFT_PATH, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-
-
-def send_draft_with_buttons(draft_text):
+def send_draft_with_buttons(draft_text, draft_id):
     char_count = len(draft_text)
-    url = f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage"
     message = (
         f"📝 <b>DRAFT X &amp; THREADS:</b>\n\n"
-        f"<code>{draft_text}</code>\n\n"
+        f"<code>{html.escape(draft_text)}</code>\n\n"
         f"<i>({char_count}/280 karakter)</i>\n\n"
         f"Pilih aksi:"
     )
-    payload = {
-        "chat_id": config.TELEGRAM_CHAT_ID,
-        "text": message,
-        "parse_mode": "HTML",
-        "reply_markup": {
-            "inline_keyboard": [[
-                {"text": "✅ Post ke X & Threads", "callback_data": "post_draft"},
-                {"text": "❌ Jangan Post", "callback_data": "skip_draft"}
-            ]]
-        }
+    reply_markup = {
+        "inline_keyboard": [[
+            {"text": "✅ Post ke X & Threads", "callback_data": f"post_draft:{draft_id}"},
+            {"text": "❌ Jangan Post", "callback_data": f"skip_draft:{draft_id}"}
+        ]]
     }
-    try:
-        requests.post(url, json=payload)
+    if send_to_telegram(message, reply_markup=reply_markup):
         print("✅ Draft + inline button terkirim ke Telegram!")
-    except Exception as e:
-        print(f"❌ Gagal kirim draft: {e}")
 
 
 # ==========================================
 # 7. TELEGRAM SENDER
 # ==========================================
-def send_to_telegram(message):
+def send_to_telegram(message, reply_markup=None):
+    """Kirim pesan HTML ke Telegram. Return True hanya jika Telegram membalas ok."""
     url = f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {"chat_id": config.TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"}
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
     try:
-        requests.post(url, json=payload)
-        print("✅ Laporan terkirim ke Telegram!")
+        data = requests.post(url, json=payload, timeout=15).json()
     except Exception as e:
         print(f"❌ Gagal kirim Telegram: {e}")
+        return False
+    if not data.get("ok"):
+        print(f"❌ Telegram menolak pesan: {data.get('description')}")
+        return False
+    return True
 
 
 # ==========================================
@@ -359,7 +342,7 @@ def main():
     # Generate Draft 280 char untuk X & Threads
     print("Membuat draft X & Threads...")
     social_draft = generate_social_draft(best_signal['title'])
-    save_pending_draft(social_draft, best_signal['title'])
+    draft_id = draft_store.add(social_draft, best_signal['title'])
     print(f"💾 Draft tersimpan ({len(social_draft)} karakter).")
 
     # Simpan ke riwayat agar tidak muncul lagi minggu ini
@@ -370,7 +353,7 @@ def main():
     signal_2 = ""
     if len(top_signals) > 1:
         s2 = top_signals[1]
-        signal_2 = f"2. [{s2['score']} pts] {s2['title']} <i>({s2['source']})</i>"
+        signal_2 = f"2. [{s2['score']} pts] {html.escape(s2['title'])} <i>({s2['source']})</i>"
 
     # Susun Laporan Akhir
     report = f"""🚀 <b>GROWTH SIGNAL REPORT</b> 🚀
@@ -380,20 +363,21 @@ def main():
 📊 <b>Top Issue:</b>
 {cluster_stats}
 🔥 <b>Top Signals (Scored):</b>
-1. [{best_signal['score']} pts] {best_signal['title']} <i>({best_signal['source']})</i>
+1. [{best_signal['score']} pts] {html.escape(best_signal['title'])} <i>({best_signal['source']})</i>
 {signal_2}
 
 🎬 <b>SCRIPT OF THE DAY:</b>
 <i>Berdasarkan issue nomor 1</i>
 
-{ai_script}
+{html.escape(ai_script)}
 
 <i>~ Mesin Growth V3.0 | Anti-Repeat + Cluster Rotation</i>
 """
 
     print("\n" + report)
-    send_to_telegram(report)
-    send_draft_with_buttons(social_draft)
+    if send_to_telegram(report):
+        print("✅ Laporan terkirim ke Telegram!")
+    send_draft_with_buttons(social_draft, draft_id)
 
 
 if __name__ == "__main__":
