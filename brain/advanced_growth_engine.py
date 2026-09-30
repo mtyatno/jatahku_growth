@@ -1,11 +1,13 @@
 import sys
 import os
+import signal
 import html
 import requests
 import feedparser
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from google import genai
+from google.genai import types
 
 # Panggil config.py
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -14,9 +16,17 @@ from memory import topic_history, draft_store
 from bot_center.poster import intent_links, api_configured
 
 # Inisialisasi AI
-client = genai.Client(api_key=config.GEMINI_API_KEY)
+client = genai.Client(
+    api_key=config.GEMINI_API_KEY,
+    http_options=types.HttpOptions(timeout=60_000),  # milidetik
+)
 
 FRESHNESS_HOURS = 72  # Abaikan sinyal lebih lama dari 72 jam
+HTTP_TIMEOUT = 15      # detik, untuk semua request ke sumber data
+
+# Batas waktu total satu kali jalan. Kalau ada request yang menggantung,
+# kernel mematikan proses ini (SIGALRM) supaya tidak menumpuk di server.
+MAX_RUNTIME_SECONDS = 600
 
 # Rotasi cluster harian — berputar setiap 4 hari
 # Senin=0, Selasa=1, Rabu=2, Kamis=3, Jumat=4, dst.
@@ -60,7 +70,7 @@ def fetch_reddit():
 
     for url in urls:
         try:
-            response = requests.get(url, headers=headers, timeout=10)
+            response = requests.get(url, headers=headers, timeout=HTTP_TIMEOUT)
             feed = feedparser.parse(response.content)
             for entry in feed.entries[:10]:
                 published = getattr(entry, 'published', None)
@@ -83,7 +93,8 @@ def fetch_trends():
     trends_data = []
     try:
         url = "https://trends.google.com/trends/trendingsearches/daily/rss?geo=ID"
-        feed = feedparser.parse(url)
+        response = requests.get(url, timeout=HTTP_TIMEOUT)
+        feed = feedparser.parse(response.content)
         for entry in feed.entries:
             trends_data.append({
                 "source": "Google Trends",
@@ -105,8 +116,10 @@ def fetch_youtube():
         return youtube_data
 
     try:
+        import httplib2
         from googleapiclient.discovery import build
-        youtube = build('youtube', 'v3', developerKey=config.YOUTUBE_API_KEY)
+        youtube = build('youtube', 'v3', developerKey=config.YOUTUBE_API_KEY,
+                        http=httplib2.Http(timeout=HTTP_TIMEOUT))
         queries = ["cara hemat uang", "gaji habis", "utang", "boros", "tabungan"]
 
         for q in queries:
@@ -317,6 +330,7 @@ def send_to_telegram(message, reply_markup=None):
 # MAIN
 # ==========================================
 def main():
+    signal.alarm(MAX_RUNTIME_SECONDS)
     print("🚀 MEMULAI JATAHKU ADVANCED GROWTH ENGINE V3.0...")
 
     # Tentukan cluster hari ini (rotasi paksa)

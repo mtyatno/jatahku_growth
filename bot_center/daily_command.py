@@ -1,6 +1,7 @@
 # bot_center/daily_command.py
 import html
 import requests
+import signal
 import sys
 import os
 
@@ -10,6 +11,10 @@ import config
 from scraper.trend_scraper import get_daily_ideas
 from brain.script_generator import generate_viral_script
 from memory import topic_history
+
+# Batas waktu total satu kali jalan. Kalau ada request yang menggantung,
+# kernel mematikan proses ini (SIGALRM) supaya tidak menumpuk di server.
+MAX_RUNTIME_SECONDS = 600
 
 
 def send_telegram_message(text):
@@ -43,6 +48,7 @@ def pick_fresh_idea(ideas):
 
 
 def main():
+    signal.alarm(MAX_RUNTIME_SECONDS)
     print("Mengeksekusi Growth Engine...")
 
     # 1. Ambil data mentah dari scraper (sudah difilter duplikat di dalamnya)
