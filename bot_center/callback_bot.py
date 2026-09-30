@@ -117,6 +117,16 @@ def handle_skip(cb_id, chat_id, message_id, draft_id):
     )
 
 
+def handle_done(cb_id, chat_id, message_id, draft_id):
+    pending = draft_store.get(draft_id)
+    draft_store.remove(draft_id)
+    answer_callback(cb_id, "✅ Ditandai sudah diposting.")
+    text = "✅ <b>Draft ditandai sudah diposting.</b>"
+    if pending:
+        text += f"\n<code>{html.escape(pending['draft'])}</code>"
+    edit_message(chat_id, message_id, text)
+
+
 def main():
     print("🤖 Callback Bot aktif — menunggu tombol review draft...")
     offset = None
@@ -148,6 +158,8 @@ def main():
                 handle_post(cb_id, chat_id, message_id, draft_id)
             elif action == "skip_draft":
                 handle_skip(cb_id, chat_id, message_id, draft_id)
+            elif action == "done_draft":
+                handle_done(cb_id, chat_id, message_id, draft_id)
 
         time.sleep(1)
 

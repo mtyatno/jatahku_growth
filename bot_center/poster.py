@@ -3,9 +3,27 @@ import sys
 import os
 import time
 import requests
+from urllib.parse import quote
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
+
+X_KEYS = ("X_API_KEY", "X_API_SECRET", "X_ACCESS_TOKEN", "X_ACCESS_SECRET")
+THREADS_KEYS = ("THREADS_USER_ID", "THREADS_ACCESS_TOKEN")
+
+
+def intent_links(text):
+    """Link resmi yang membuka jendela posting dengan teks terisi (tanpa API)."""
+    encoded = quote(text, safe="")
+    return {
+        "x": f"https://x.com/intent/post?text={encoded}",
+        "threads": f"https://www.threads.net/intent/post?text={encoded}",
+    }
+
+
+def api_configured():
+    """True jika semua key API X dan Threads sudah diisi di config.py."""
+    return all(getattr(config, k, "") for k in X_KEYS + THREADS_KEYS)
 
 
 def post_to_x(text):
