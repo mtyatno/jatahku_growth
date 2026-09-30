@@ -11,6 +11,7 @@ from google import genai
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
 from memory import topic_history, draft_store
+from bot_center.poster import intent_links, api_configured
 
 # Inisialisasi AI
 client = genai.Client(api_key=config.GEMINI_API_KEY)
@@ -273,14 +274,21 @@ def send_draft_with_buttons(draft_text, draft_id):
         f"📝 <b>DRAFT X &amp; THREADS:</b>\n\n"
         f"<code>{html.escape(draft_text)}</code>\n\n"
         f"<i>({char_count}/280 karakter)</i>\n\n"
-        f"Pilih aksi:"
+        f"Tap tombol platform untuk membuka jendela posting, lalu tekan Post di sana."
     )
-    reply_markup = {
-        "inline_keyboard": [[
-            {"text": "✅ Post ke X & Threads", "callback_data": f"post_draft:{draft_id}"},
-            {"text": "❌ Jangan Post", "callback_data": f"skip_draft:{draft_id}"}
-        ]]
-    }
+    links = intent_links(draft_text)
+    keyboard = [[
+        {"text": "🐦 Post ke X", "url": links["x"]},
+        {"text": "🧵 Post ke Threads", "url": links["threads"]},
+    ]]
+    if api_configured():
+        # Opsi auto-post via API, hanya muncul kalau key X & Threads sudah diisi
+        keyboard.append([{"text": "🤖 Auto-post via API", "callback_data": f"post_draft:{draft_id}"}])
+    keyboard.append([
+        {"text": "✔️ Sudah Diposting", "callback_data": f"done_draft:{draft_id}"},
+        {"text": "❌ Jangan Post", "callback_data": f"skip_draft:{draft_id}"},
+    ])
+    reply_markup = {"inline_keyboard": keyboard}
     if send_to_telegram(message, reply_markup=reply_markup):
         print("✅ Draft + inline button terkirim ke Telegram!")
 
