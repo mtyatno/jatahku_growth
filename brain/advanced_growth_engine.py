@@ -90,21 +90,33 @@ def fetch_reddit():
 
 def fetch_trends():
     print("Mengecek Google Trends Indonesia (via RSS)...")
+    # URL lama (trendingsearches/daily) sudah dipensiunkan Google;
+    # dicoba berurutan, pakai yang pertama berhasil mengembalikan data.
+    urls = [
+        "https://trends.google.com/trending/rss?geo=ID",
+        "https://trends.google.com/trends/trendingsearches/daily/rss?geo=ID",
+    ]
     trends_data = []
-    try:
-        url = "https://trends.google.com/trends/trendingsearches/daily/rss?geo=ID"
-        response = requests.get(url, timeout=HTTP_TIMEOUT)
-        feed = feedparser.parse(response.content)
-        for entry in feed.entries:
-            trends_data.append({
-                "source": "Google Trends",
-                "title": entry.title,
-                "link": entry.link,
-                "text_length": len(entry.title),
-                "published": getattr(entry, 'published', "")
-            })
-    except Exception as e:
-        print(f"❌ Error Google Trends RSS: {e}")
+    for url in urls:
+        try:
+            response = requests.get(url, timeout=HTTP_TIMEOUT)
+            if response.status_code != 200:
+                print(f"⚠️ Google Trends {url} → HTTP {response.status_code}")
+                continue
+            feed = feedparser.parse(response.content)
+            for entry in feed.entries:
+                trends_data.append({
+                    "source": "Google Trends",
+                    "title": entry.title,
+                    "link": getattr(entry, 'link', ""),
+                    "text_length": len(entry.title),
+                    "published": getattr(entry, 'published', "")
+                })
+            if trends_data:
+                break
+            print(f"⚠️ Google Trends {url} → feed kosong")
+        except Exception as e:
+            print(f"❌ Error Google Trends RSS ({url}): {e}")
     return trends_data
 
 
