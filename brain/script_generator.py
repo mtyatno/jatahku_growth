@@ -1,5 +1,6 @@
 # brain/script_generator.py
 from google import genai
+from google.genai import types
 import sys
 import os
 
@@ -8,7 +9,10 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
 
 # Inisialisasi Client baru dengan API Key
-client = genai.Client(api_key=config.GEMINI_API_KEY)
+client = genai.Client(
+    api_key=config.GEMINI_API_KEY,
+    http_options=types.HttpOptions(timeout=60_000),  # milidetik
+)
 
 def generate_viral_script(idea):
     prompt = f"""
